@@ -1182,11 +1182,11 @@ def custom_delete(config, **kwargs):
         rulenames_to_delete = set(path['rulename'].strip() for path in onboard.paths)
 
         logger.info(f'Looking to delete rules for {len(paths_to_delete)} paths and {len(rulenames_to_delete)} rulenames.')
-        print(f'Looking to delete rules for {len(paths_to_delete)} paths and {len(rulenames_to_delete)} rulenames.')
+        #print(f'Looking to delete rules for {len(paths_to_delete)} paths and {len(rulenames_to_delete)} rulenames.')
         logger.debug(f"Paths to delete (WAF + Cloudlet): {paths_to_delete}")
-        print(f"Paths to delete (WAF + Cloudlet): {paths_to_delete}")
+        #print(f"Paths to delete (WAF + Cloudlet): {paths_to_delete}")
         logger.debug(f"Rule names to delete (PM): {rulenames_to_delete}")
-        print(f"Rule names to delete (PM): {rulenames_to_delete}")
+        #print(f"Rule names to delete (PM): {rulenames_to_delete}")
 
         rules_modified = False
 
@@ -1196,11 +1196,11 @@ def custom_delete(config, **kwargs):
                 updated_children = []
                 for child in rule_node['children']:
                     logger.debug(f"Walking rule: {child['name']}")
-                    print(f"Walking rule: {child['name']}")
+                    #print(f"Walking rule: {child['name']}")
 
                     if child['name'].strip() in rulenames_to_delete:
                         logger.debug(f"Evaluating rule for removal: {child['name']}")
-                        print(f"Evaluating rule for removal: {child['name']}")
+                        #print(f"Evaluating rule for removal: {child['name']}")
                         if any(
                             crit.get('name') == 'path' and (
                                 crit.get('options', {}).get('value') in paths_to_delete or
@@ -1209,7 +1209,7 @@ def custom_delete(config, **kwargs):
                             for crit in child.get('criteria', [])
                         ):
                             logger.warning(f"Removing rule: {child['name']}")
-                            print(f"Removing rule: {child['name']}")
+                            #print(f"Removing rule: {child['name']}")
                             rules_modified = True
                             continue  # Skip this rule — delete it
 
@@ -1222,30 +1222,61 @@ def custom_delete(config, **kwargs):
 
         if not rules_modified:
             logger.warning('No matching rules found to remove.')
-            print('No matching rules found to remove.')
+            #print('No matching rules found to remove.')
             sys.exit(0)
 
         # Update property rule tree and push changes
         onboard.updated_property_rule_tree = property_rule_tree['rules']
         util_papi.update_custom_property(onboard, wrapper, property_rule_tree['ruleFormat'])
 
+        print()
+        property = [{'propertyName': onboard.property_name, 'propertyId': property_rule_tree['propertyId']}]
+
+        if not onboard.activate_property_staging:
+            staging_act_id = 0
+            logger.warning('SKIP - Activate delivery configuration on STAGING')
+        else:
+            _, _, fail, act = util_papi.batch_activate_and_poll(wrapper,
+                                                            property,
+                                                            onboard.contract_id,
+                                                            onboard.group_id,
+                                                            version=onboard.updated_property_version,
+                                                            network='STAGING',
+                                                            emailList=onboard.notification_emails,
+                                                            notes=onboard.property_version_note)
+            staging_act_id = act[0]['activationId'] if len(fail) == 0 else fail[0]['activationId']
+
+        if not onboard.activate_property_production:
+            prod_act_id = 0
+            logger.warning('SKIP - Activate delivery configuration on PRODUCTION')
+        else:
+            _, _, fail, act = util_papi.batch_activate_and_poll(wrapper,
+                                                                property,
+                                                                onboard.contract_id,
+                                                                onboard.group_id,
+                                                                version=onboard.updated_property_version,
+                                                                network='PRODUCTION',
+                                                                emailList=onboard.notification_emails,
+                                                                notes=onboard.property_version_note)
+            prod_act_id = act[0]['activationId'] if len(fail) == 0 else fail[0]['activationId']
+
         # --- WAF Updates ---
         logger.warning('Updating WAF - removing match targets')
-        print('Updating WAF - removing match targets')
+        #print('Updating WAF - removing match targets')
         util_waf = utility_waf.wafFunctions()
 
         if not util_waf.createWafVersion(wrapper, onboard, notes=onboard.version_notes):
             logger.error('Failed to create WAF version')
-            print('Failed to create WAF version')
+            #print('Failed to create WAF version')
             sys.exit()
 
         wrapper.update_waf_config_version_note(onboard, notes=onboard.version_notes)
 
         waf_paths = list(map(lambda x: x['path_match'].strip(), onboard.paths))
         logger.debug(f"Paths sent to removeMatchTargetPaths(): {waf_paths}")
-        print(f"Paths sent to removeMatchTargetPaths(): {waf_paths}")
+        #print(f"Paths sent to removeMatchTargetPaths(): {waf_paths}")
         logger.debug(f"WAF Config ID: {onboard.onboard_waf_config_id}, Version: {onboard.onboard_waf_config_version}, Target ID: {onboard.waf_match_target_id}")
-        print(f"WAF Config ID: {onboard.onboard_waf_config_id}, Version: {onboard.onboard_waf_config_version}, Target ID: {onboard.waf_match_target_id}")
+        #print(f"WAF Config ID: {onboard.onboard_waf_config_id}, Version: {onboard.onboard_waf_config_version}, Target ID: {onboard.waf_match_target_id}")
 
         remove_result = util_waf.removeMatchTargetPaths(
             wrapper,
@@ -1257,51 +1288,51 @@ def custom_delete(config, **kwargs):
 
         if remove_result:
             logger.info('Successfully removed match targets from WAF')
-            print('Successfully removed match targets from WAF')
+            #print('Successfully removed match targets from WAF')
         else:
             logger.error('Unable to update match target in WAF Configuration')
-            print('Unable to update match target in WAF Configuration')
+            #print('Unable to update match target in WAF Configuration')
 
         if onboard.activate_waf_staging:
             util_waf.activateAndPoll(wrapper, onboard, network='STAGING')
         else:
             logger.warning('SKIP - Activate WAF config on STAGING')
-            print('SKIP - Activate WAF config on STAGING')
+            #print('SKIP - Activate WAF config on STAGING')
 
         if onboard.activate_property_production:
             util_waf.activateAndPoll(wrapper, onboard, network='PRODUCTION')
         else:
             logger.warning('SKIP - Activate WAF config on PRODUCTION')
-            print('SKIP - Activate WAF config on PRODUCTION')
+            #print('SKIP - Activate WAF config on PRODUCTION')
 
 
         # --- Cloudlet Policy Updates ---
         logger.warning('Updating Cloudlet Policy - removing path matches')
-        print('Updating Cloudlet Policy - removing path matches')
+        #print('Updating Cloudlet Policy - removing path matches')
         uc = utility.Cloudlets(config)
-        print("🖨️ Instantiated Cloudlets class")
+        #print("🖨️ Instantiated Cloudlets class")
         uc.retrieve_matchrules(onboard.cloudlet_policy)
         cloudlet_rules = load_json('policy_matchrules.json')
-        print("🖨️ cloudlet_rules")
-        print(json.dumps(cloudlet_rules, indent=2))
+        #print("🖨️ cloudlet_rules")
+        #print(json.dumps(cloudlet_rules, indent=2))
 
         if not cloudlet_rules:
             logger.error("❌ Failed to load cloudlet_rules from policy_matchrules.json")
-            print("❌ Failed to load cloudlet_rules from policy_matchrules.json")
+            #print("❌ Failed to load cloudlet_rules from policy_matchrules.json")
             return
 
         logger.debug("🦪 Scanning cloudlet_rules for 'Property'")
-        print("🦪 Scanning cloudlet_rules for 'Property'")
+        #print("🦪 Scanning cloudlet_rules for 'Property'")
         logger.debug(json.dumps(cloudlet_rules, indent=2))
-        print("🖨️ Entered Cloudlet scanning block")
+        #print("🖨️ Entered Cloudlet scanning block")
 
         for rule in cloudlet_rules.get('matchRules', []):
             logger.debug(f"Found rule name: {rule.get('name')}")
-            print(f"🖨️ Found rule: {rule.get('name')}")
+            #print(f"🖨️ Found rule: {rule.get('name')}")
             if rule['name'].strip().lower() == 'property':
                 path_matches_to_remove = set(map(lambda x: x['path_match'].strip(), onboard.paths))
                 logger.debug(f"Calling remove_phasedrelease_paths with paths: {path_matches_to_remove}")
-                print(f"Calling remove_phasedrelease_paths with paths: {path_matches_to_remove}")
+                #print(f"Calling remove_phasedrelease_paths with paths: {path_matches_to_remove}")
 
                 matches = rule.get('matches', [])
                 new_matches = []
@@ -1314,7 +1345,7 @@ def custom_delete(config, **kwargs):
                         if len(kept_values) != len(values):
                             removed_any = True
                             logger.warning(f"Removing path(s): {set(values) - set(kept_values)}")
-                            print(f"Removing path(s): {set(values) - set(kept_values)}")
+                            #print(f"Removing path(s): {set(values) - set(kept_values)}")
                         if kept_values:
                             match['matchValue'] = ' '.join(kept_values)
                             new_matches.append(match)
@@ -1330,18 +1361,18 @@ def custom_delete(config, **kwargs):
                     "matchRules": cloudlet_rules.get("matchRules", [])
                 }
 
-                print("🛠️ matchRules type:", type(updated_rules.get("matchRules")))
+                #print("🛠️ matchRules type:", type(updated_rules.get("matchRules")))
                 logger.debug(f"Value of 'updated' after removal attempt: {updated}")
-                print(f"🖨️ Updated flag: {updated}")
+                #print(f"🖨️ Updated flag: {updated}")
                 logger.debug(json.dumps(updated_rules, indent=2))
-                print(json.dumps(updated_rules, indent=2))
+                #print(json.dumps(updated_rules, indent=2))
 
                 if updated:
                     for path in path_matches_to_remove:
                         logger.info(f"Removed Cloudlet path: {path}")
-                        print(f"Removed Cloudlet path: {path}")
+                        #print(f"Removed Cloudlet path: {path}")
                     logger.warning('Updating Cloudlet Policy')
-                    print('Updating Cloudlet Policy')
+                    #print('Updating Cloudlet Policy')
                     version_number = uc.create_cloudlet_policy_version(
                         onboard.cloudlet_policy,
                         updated_rules["matchRules"],
@@ -1351,11 +1382,11 @@ def custom_delete(config, **kwargs):
                     uc.activate_policy(onboard, version_number, network='PRODUCTION')
                 else:
                     logger.warning('No cloudlet paths removed or no update needed')
-                    print('No cloudlet paths removed or no update needed')
+                    #print('No cloudlet paths removed or no update needed')
                 break
         else:
             logger.warning('Rule "Property" not found in Cloudlet Policy')
-            print('Rule "Property" not found in Cloudlet Policy')
+            #print('Rule "Property" not found in Cloudlet Policy')
 
 
 
